@@ -102,7 +102,8 @@ def main(args: argparse.Namespace):
     ), args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
     optimizer = SAM(classifier.get_parameters(), base_optimizer, rho=args.rho, adaptive=False,
                     lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr *
+    # SAM performs its actual update through the base optimizer in second_step.
+    lr_scheduler = LambdaLR(optimizer.base_optimizer, lambda x: args.lr *
                             (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
     lr_scheduler_ad = LambdaLR(
         ad_optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
@@ -147,7 +148,8 @@ def main(args: argparse.Namespace):
         return
 
     # start training
-    best_acc1 = 0.
+    # The first valid checkpoint is also the best when accuracy is exactly zero.
+    best_acc1 = float('-inf')
     for epoch in range(args.epochs):
         print("lr_bbone:", lr_scheduler.get_last_lr()[0])
         print("lr_btlnck:", lr_scheduler.get_last_lr()[1])

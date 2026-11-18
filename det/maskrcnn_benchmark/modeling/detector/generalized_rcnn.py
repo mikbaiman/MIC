@@ -56,7 +56,9 @@ class GeneralizedRCNN(nn.Module):
         if self.roi_heads:
             x, result, detector_losses, da_ins_feas, da_ins_labels, da_proposals = self.roi_heads(features, proposals, targets, use_pseudo_labeling_weight=use_pseudo_labeling_weight)
 
-            if self.da_heads and with_DA_ON:
+            # Domain losses require training proposals and their aligned features.
+            # Evaluation (including EMA pseudo-labeling) returns filtered boxes.
+            if self.training and self.da_heads and with_DA_ON:
                 da_losses = self.da_heads(result, features, da_ins_feas, da_ins_labels, da_proposals, targets)
                 # da_losses = self.da_heads(result, res_feat, da_ins_feas, da_ins_labels, da_proposals, targets)
 

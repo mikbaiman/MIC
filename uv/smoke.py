@@ -1,13 +1,15 @@
-"""Exercise original MIC code on synthetic tensors without downloads or edits."""
+"""Exercise MIC code on synthetic tensors without dataset or weight downloads."""
 import argparse
 import importlib
 import os
 from pathlib import Path
 import sys
+import warnings
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / "uv/.cache/matplotlib"))
+os.environ.setdefault("MPLBACKEND", "Agg")
 os.environ.setdefault("WANDB_MODE", "disabled")
 
 
@@ -26,7 +28,7 @@ def classification(torch, device):
     mask = entry.Masking(16, 0.5, 0, 0, False, (0, 0, 0), (1, 1, 1))
     optimizer = entry.SAM(model.get_parameters(), torch.optim.SGD, rho=0.02, lr=0.001)
     adversarial_optimizer = torch.optim.SGD(discriminator.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 0.001)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer.base_optimizer, lambda _: 0.001)
     adversarial_scheduler = torch.optim.lr_scheduler.LambdaLR(adversarial_optimizer, lambda _: 1)
     images = torch.randn(2, 3, 64, 64)
     labels = torch.tensor([0, 1])
@@ -35,9 +37,11 @@ def classification(torch, device):
     args = SimpleNamespace(iters_per_epoch=1, trade_off=1.0, log_results=False, print_freq=1)
     entry.device = device  # The original CLI sets this global before calling train().
     before = model.head.weight.detach().clone()
-    entry.train(source, target, model, teacher, domain_loss,
-                entry.MinimumClassConfusionLoss(2.0), mask, optimizer,
-                adversarial_optimizer, scheduler, adversarial_scheduler, 0, args)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="Detected call of `lr_scheduler.step.*")
+        entry.train(source, target, model, teacher, domain_loss,
+                    entry.MinimumClassConfusionLoss(2.0), mask, optimizer,
+                    adversarial_optimizer, scheduler, adversarial_scheduler, 0, args)
     assert not torch.equal(before, model.head.weight.detach())
     model.eval()
     with torch.no_grad():
@@ -95,6 +99,8 @@ def detection(torch, device):
     from maskrcnn_benchmark.config import cfg
     from maskrcnn_benchmark.modeling.detector import build_detection_model
     from maskrcnn_benchmark.modeling.masking import Masking
+    from maskrcnn_benchmark.modeling.teacher import EMATeacher
+    from copy import deepcopy
 
     config = cfg.clone()
     config.merge_from_file(str(ROOT / "det/configs/da_faster_rcnn/e2e_da_faster_rcnn_R_50_FPN_masking_cs.yaml"))
@@ -107,9 +113,13 @@ def detection(torch, device):
     images = torch.randn(1, 3, 64, 64, device=device)
     images = Masking(16, 0.5, 0, 0, False, (0, 0, 0), (1, 1, 1))(images)
     with torch.no_grad():
-        results = model(images, with_DA_ON=False)
+        results = model(images)
     assert len(results) == 1 and results[0].bbox.shape[1] == 4
-    print("PASS: original detector config, MIC masking, native extension, and synthetic detector inference.")
+    teacher = EMATeacher(deepcopy(model), alpha=0.9)
+    teacher.update_weights(model, 0)
+    teacher_results = teacher(images)
+    torch.testing.assert_close(results[0].bbox, teacher_results[0].bbox)
+    print("PASS: detector default inference, EMA pseudo-labeling, MIC masking, and native extension.")
     print("Native extension:", _C.__file__)
 
 

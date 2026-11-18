@@ -11,6 +11,7 @@ export UV_CACHE_DIR="$setup_dir/.cache"
 export UV_PYTHON_INSTALL_DIR="$setup_dir/.python"
 export PYTHONDONTWRITEBYTECODE=1
 export MPLCONFIGDIR="$setup_dir/.cache/matplotlib"
+export MPLBACKEND="${MPLBACKEND:-Agg}"
 export PATH="$setup_dir/$profile/.venv/bin:$PATH"
 exec uv run --no-project --python "$setup_dir/$profile/.venv/bin/python" \
     "$setup_dir/run.py" "$@"

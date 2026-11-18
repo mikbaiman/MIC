@@ -1,9 +1,23 @@
-# uv environments for the unchanged MIC code
+# uv environments and compatibility checks for MIC
 
-This setup is additive. All configuration, scripts, locks, environments, and
-native build products live under `uv/`; the original files in `cls/`, `seg/`, and
-`det/` are unchanged. The previous root `.venv` and `environments/seg-cuda/.venv`
-are not used or modified. Work was performed on branch `mikhail`.
+Environment configuration, scripts, locks, environments, and native build
+products live under `uv/`. Work is on branch `mikhail`; the original dependency
+versions remain pinned. The previous environments are not used or modified.
+
+Targeted source fixes support actual training and evaluation:
+
+- Both classification trainers schedule SAM's inner SGD optimizer, which performs
+  the real update, rather than warning about an unobserved outer `step()` call.
+- Both classification trainers save a first best checkpoint even at 0% accuracy.
+- Classification logging restores stdout/stderr without closing borrowed terminal
+  streams, avoiding interpreter shutdown failure (exit code 120).
+- Detection skips training-only domain losses in evaluation and EMA pseudo-labeling.
+- Detection's instance domain head processes all four feature-pyramid levels.
+- The uv runners default to Matplotlib's noninteractive Agg backend, allowing
+  segmentation debug images to be saved without a Tk/Tcl desktop installation.
+
+Regression tests and full CLI fixture checks accompany these changes. Research
+models, dataset definitions, experiment settings, and pinned versions are retained.
 
 ## Original versions
 
@@ -29,8 +43,8 @@ Classification additionally declares its imported analysis libraries and keeps
 NumPy below 1.24 because the original code uses `np.float`. The historical uv
 Python 3.8.5 build uses LibreSSL, so classification/segmentation require urllib3
 below 2. Setuptools remains available for legacy runtime imports. Isolated build
-constraints keep PyYAML 5.4.1 compatible with Cython below 3; no source patch is
-applied. Segmentation uses OpenMMLab's official matching prebuilt MMCV wheel.
+constraints keep PyYAML 5.4.1 compatible with Cython below 3 without patching that
+dependency. Segmentation uses OpenMMLab's official matching prebuilt MMCV wheel.
 
 Target: Linux x86-64, NVIDIA GPU. Setup was tested with uv 0.13.7. The locks are
 for these Python/platform combinations, not universal Windows/macOS environments.
@@ -96,6 +110,30 @@ requires the additional compiler/toolkit. The CUDA extension build is unverified
 From the repository root:
 
 ```bash
+bash uv/check.sh
+```
+
+To test your GPU and the actual training/checkpoint/evaluation CLIs as well:
+
+```bash
+bash uv/check.sh --cuda --integration
+```
+
+The integration checks generate tiny image/label fixtures under ignored
+`uv/cls/runs/integration-*` and `uv/seg/runs/integration-*` directories. They train
+small ResNet-18 models for two iterations, save/reload checkpoints, and run the
+real evaluation entry points. Classification checks both baseline and MIC;
+segmentation checks DACS self-training, EMA pseudo-labels, ClassMix, MIC, runner
+hooks, and mIoU evaluation. No public datasets or pretrained weights are required.
+Synthetic scores are plumbing checks, not accuracy benchmarks.
+The deliberately tiny segmentation fixture contains only three ground-truth
+class IDs within the original 19-class Cityscapes output layout. Per-class NaNs
+for absent classes and low aggregate accuracy are expected for these untrained
+two-iteration models; successful execution is indicated by the final PASS lines.
+
+You can also run individual model checks:
+
+```bash
 uv/cls/.venv/bin/python uv/smoke.py cls --device cpu
 uv/seg/.venv/bin/python uv/smoke.py seg --device cpu
 uv/det/.venv/bin/python uv/smoke.py det --device cpu
@@ -120,19 +158,22 @@ Verified on the RTX 3060 8 GB, driver 580.178.04:
 | Original classification MIC `train()`, teacher, losses, two-pass SAM, inference | PASS, CPU and CUDA |
 | Original segmentation MIC config and block masking, small ResNet/FCN segmentor forward/backward, compiled MMCV NMS | PASS, CPU and CUDA |
 | Original detection C++ extension build | PASS, CPU |
-| Original detector inference through its `with_DA_ON=False` API | PASS, CPU |
+| Default detector inference and EMA pseudo-labeling (without a bypass flag) | PASS, CPU |
 | Original detection metric-logger and sampler tests | PASS, 10 tests |
+| New scheduler/logger and domain-head regression tests | PASS, 4 tests |
+| Baseline and MIC classification training, checkpoint reload, evaluation CLIs | PASS, CUDA, generated images |
+| Segmentation DACS+MIC training, validation, checkpoint reload, mIoU CLI | PASS, CUDA, generated images |
 | Detection CUDA extension / GPU detector training | Not tested: no `nvcc` installed |
 | Full HRDA/MiT-B5 MIC training or dataset evaluation | Not tested |
 
-Important original-code behavior: default detector inference on the small
-synthetic fixture raised `IndexError` in the domain-adaptation heads. Its ROI head
-returns detection boxes alongside pre-filtering instance features, which can have
-different lengths. The smoke test explicitly calls the existing
-`with_DA_ON=False` inference API. This does not establish that the default
-evaluation entry point or teacher path works for real data. No original code was
-changed to fix that issue. Classification also retains the original scheduler
-warning around its SAM optimizer.
+The detector previously raised `IndexError` because it sent filtered evaluation
+boxes and pre-filtering features into training-only domain heads. Evaluation and
+teacher pseudo-labeling now skip those losses; the smoke test uses the default
+public forward call and checks teacher outputs as well. Regression tests also
+verify outputs and gradients at all four pyramid levels. Classification tests
+verify the actual SAM updates and learning-rate sequence and reject recurrence of
+the scheduler-order warning. WILDS' outdated-version notice is informational; its
+documented version is intentionally retained.
 
 GPU access is unavailable inside this app's restricted sandbox, but the same
 classification/segmentation tests passed when executed with host driver access.
@@ -221,10 +262,9 @@ as specified in `det/README.md`. Convert annotations with the two scripts in
 the cityscapesScripts package search path, replacing INSTALL.md's manual copy step
 without modifying either source tree.
 
-Before full detection training, install/build the CUDA extension and investigate
-the original default inference/teacher issue above. The environment and CPU
-inference checks alone are not a claim that the complete detection experiment is
-ready for unattended training.
+Before full detection training, install/build the CUDA extension. CPU inference
+and regression checks are not a claim that the complete GPU detection experiment
+has been validated on real data.
 
 ## Maintaining the locks
 

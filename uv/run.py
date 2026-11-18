@@ -5,6 +5,7 @@ import runpy
 import sys
 
 sys.dont_write_bytecode = True
+os.environ.setdefault("MPLBACKEND", "Agg")
 root = Path(__file__).resolve().parents[1]
 if len(sys.argv) < 3 or sys.argv[1] not in ("cls", "seg", "det"):
     raise SystemExit("Usage: bash uv/run.sh {cls|seg|det} script.py [arguments...]")

@@ -23,8 +23,10 @@ class TextLogger(object):
         self.log.flush()
 
     def close(self):
-        self.terminal.close()
-        self.log.close()
+        # The terminal stream is borrowed; closing it breaks Python's final flush.
+        if not self.log.closed:
+            self.flush()
+            self.log.close()
 
 
 class CompleteLogger:
@@ -56,7 +58,9 @@ class CompleteLogger:
         log_filename = os.path.join(self.root, "{}-{}.txt".format(phase, now))
         if os.path.exists(log_filename):
             os.remove(log_filename)
-        self.logger = TextLogger(log_filename)
+        self.stdout = sys.stdout
+        self.stderr = sys.stderr
+        self.logger = TextLogger(log_filename, stream=self.stdout)
         sys.stdout = self.logger
         sys.stderr = self.logger
         if phase != 'train':
@@ -95,4 +99,8 @@ class CompleteLogger:
         return os.path.join(self.checkpoint_directory, name + ".pth")
 
     def close(self):
+        if sys.stdout is self.logger:
+            sys.stdout = self.stdout
+        if sys.stderr is self.logger:
+            sys.stderr = self.stderr
         self.logger.close()

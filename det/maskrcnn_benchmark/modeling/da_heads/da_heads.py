@@ -188,7 +188,7 @@ class DAInsHead(nn.Module):
 
                 result[idx_in_level] = getattr(self, fc3_da)(xs)
 
-            return result
+        return result
 
 
 class DomainAdaptationModule(torch.nn.Module):
