@@ -1,0 +1,7 @@
+.cache/
+.python/
+*/.venv/
+*/build/
+*/runs/
+__pycache__/
+*.log

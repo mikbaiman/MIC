@@ -1,0 +1,4 @@
+# PyYAML 5.4.1 predates Cython 3; keep its isolated build compatible.
+Cython<3
+setuptools<70
+wheel<0.46

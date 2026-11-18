@@ -1,0 +1,24 @@
+# Versions from det/INSTALL.md; CUDA builds match its CUDA 11.3 environment.
+torch==1.12.0+cu113
+torchvision==0.13.0+cu113
+ninja==1.10.2.3
+yacs==0.1.8
+cython==0.29.28
+matplotlib==3.5.1
+tqdm==4.63.0
+opencv-python==4.5.5.64
+timm==0.6.11
+kornia==0.5.8
+einops==0.4.1
+h5py==3.6.0
+scipy==1.8.0
+# Additional versions explicitly recorded in det/environment.yml.
+cityscapesscripts==2.2.0
+numpy==1.22.3
+pillow==9.0.1
+setuptools==58.0.4
+huggingface-hub==0.10.1
+pyyaml==6.0
+# INSTALL.md installs COCO API from Git without fixing a release.
+pycocotools
+wheel

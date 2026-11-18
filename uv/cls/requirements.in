@@ -1,0 +1,14 @@
+# Preserve every upstream classification requirement.
+-r ../../cls/requirements.txt
+# Select the official CUDA 11.1 builds of the same upstream torch versions.
+torch==1.9.1+cu111
+torchvision==0.10.1+cu111
+# Imported by the source but not directly declared upstream. np.float is used.
+numpy<1.24
+matplotlib
+scikit-learn
+tqdm
+# The original W&B imports pkg_resources.
+setuptools==59.5.0
+# uv's historical CPython 3.8.5 build uses LibreSSL; urllib3 2 requires OpenSSL.
+urllib3<2
