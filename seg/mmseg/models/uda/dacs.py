@@ -179,10 +179,10 @@ class DACS(UDADecorator):
             # mmcv.print_log(f'fd mask: {mask.shape}', 'mmseg')
             pw_feat_dist = pw_feat_dist[mask.squeeze(1)]
             # mmcv.print_log(f'fd masked: {pw_feat_dist.shape}', 'mmseg')
-        # If the mask is empty, the mean will be NaN. However, as there is
-        # no connection in the compute graph to the network weights, the
-        # network gradients are zero and no weight update will happen.
-        # This can be verified with print_grad_magnitude.
+        # A small crop may contain no eligible thing-class feature cells.
+        # Sum the empty selection to keep a differentiable zero, not a NaN mean.
+        if pw_feat_dist.numel() == 0:
+            return pw_feat_dist.sum()
         return torch.mean(pw_feat_dist)
 
     def calc_feat_dist(self, img, gt, feat=None):

@@ -20,6 +20,7 @@ for profile in cls seg det; do
     uv pip check --python "$setup_dir/$profile/.venv/bin/python"
 done
 "$setup_dir/cls/.venv/bin/python" -m unittest discover -s uv/tests -p test_cls.py -v
+"$setup_dir/seg/.venv/bin/python" -m unittest discover -s uv/tests -p test_seg.py -v
 "$setup_dir/det/.venv/bin/python" -m unittest discover -s uv/tests -p test_det.py -v
 "$setup_dir/det/.venv/bin/python" "$setup_dir/run.py" det tests/test_metric_logger.py
 "$setup_dir/det/.venv/bin/python" "$setup_dir/run.py" det tests/test_data_samplers.py

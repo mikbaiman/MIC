@@ -1,5 +1,139 @@
 # uv environments and compatibility checks for MIC
 
+## Real GTA to Cityscapes MiT-B5 / HRDA / MIC is now verified
+
+The current downloads live under `dataset/`. All 24,966 GTA images and labels
+are assembled under `dataset/gta/` (image links preserve the original extracted
+parts), and `seg/data/gta` points there. `seg/data/cityscapes/{gtFine,leftImg8bit}`
+now point to the corresponding folders under `dataset/`. GTA archive 05 labels
+was missing and was downloaded from the official dataset host; all ten label
+archives were extracted with CRC checks. The original GTA converter generated
+all 24,966 train-ID masks and rare-class sampling statistics.
+
+The suggested public weights at
+<https://huggingface.co/smp-hub/mit_b5.imagenet> work. Revision
+`0851a37f3f718608d9b3cc8ff4cafb81f07374a1` was downloaded to
+`dataset/mit_b5.huggingface.safetensors`. `prepare_mit_b5.py` reads its F32 tensors
+without adding dependencies to the legacy environment, verifies all 1,052 encoder
+keys/shapes/finiteness, loads them strictly, and writes
+`seg/pretrained/mit_b5.pth`. Only the unused ImageNet classifier is omitted. Every
+encoder tensor is bit-for-bit identical to the supplied `dataset/mit_b5.pth`.
+No backbone tensor names or shapes are changed.
+
+The supplied `dataset/gtaHR2csHR_mic_hrda_650a8.tar.gz` was extracted into
+`dataset/checkpoints/`. All 1,126 trained model tensors match its supplied config
+strictly. Its original-resolution evaluation on the fixed eight-image validation
+subset completed with 68.16% mIoU and 96.52% pixel accuracy. This is a subset
+result, not the full 500-image Cityscapes benchmark. Overlays and logs are in
+`uv/seg/runs/mic-pretrained-eval/`.
+
+The real training check uses MiT-B5, HRDA, EMA pseudo-labeling, ClassMix, ImageNet
+feature distance, and MIC on the actual GTA/Cityscapes data. Two updates and
+validation completed, with a peak of 4,235 MiB reported by the training logger.
+The saved checkpoint's 1,052 student encoder tensors all changed; its EMA teacher
+differs from the student and its frozen ImageNet encoder remains unchanged.
+Source, mixed-image, and masked-image losses were positive and finite. Feature
+distance was zero for the two crops with no eligible thing-class feature cells;
+an empty selection now returns differentiable zero instead of a NaN mean. Two
+regression tests cover that case and the unchanged nonempty L2 calculation.
+
+Important configuration differences:
+
+- `seg/configs/mic/gtaHR2csHR_mic_hrda.py` remains the original 1024-pixel
+  experiment; it has not been trained at full resolution on this 8 GB card.
+- `uv/seg/mic_gta_cityscapes_8gb.py` retains the original MiT-B5, HRDA, EMA,
+  feature-distance, ClassMix, and MIC components but uses 256-pixel training
+  crops, 128-pixel detail crops, smaller resize scales, a lower rare-class crop
+  fraction, sequential outer inference crops, and no extra loader workers.
+  It retains the original confidence threshold and 40,000-iteration schedule.
+  It is a separate small-GPU experiment and should not be reported as reproducing
+  the paper's training protocol.
+- `uv/seg/mic_gta_cityscapes_smoke.py` runs two updates, disables LR warmup,
+  and temporarily uses confidence threshold zero to ensure a nonzero MIC signal
+  before the decoder has learned. It evaluates eight validation images. These
+  smoke-only settings are not inherited by the long-training config.
+- `uv/seg/hrda_gta_cityscapes_8gb_baseline.py` is a matched long-training control
+  with only MIC disabled. Run matched seeds and evaluate the full 500 validation
+  images to measure MIC's benefit; two-update scores are not evidence of benefit.
+
+### Commands to independently repeat the real MIC check
+
+Run from the repository root. The first two commands recheck cached downloads;
+they do not download anything or change the original image files:
+
+```bash
+uv/seg/.venv/bin/python uv/prepare_mic_data.py
+uv/seg/.venv/bin/python uv/prepare_mit_b5.py
+```
+
+The missing archive and pinned weight download have already been completed. To
+obtain them again on a fresh checkout with the other dataset parts present:
+
+```bash
+curl -fL --retry 2 -o dataset/mit_b5.huggingface.safetensors \
+  https://huggingface.co/smp-hub/mit_b5.imagenet/resolve/0851a37f3f718608d9b3cc8ff4cafb81f07374a1/model.safetensors
+curl -fL --retry 2 -o dataset/05_labels.zip \
+  https://download.visinf.tu-darmstadt.de/data/from_games/data/05_labels.zip
+```
+
+If the converted GTA masks/statistics need rebuilding (about 3.5 minutes on the
+test machine):
+
+```bash
+bash uv/run.sh seg tools/convert_datasets/gta.py data/gta --nproc 8
+```
+
+Repeat training into a separate user-verification directory, audit the checkpoint,
+export a compact student without optimizer/teacher state, then reload/evaluate:
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 bash uv/run.sh seg tools/train.py \
+  ../uv/seg/mic_gta_cityscapes_smoke.py \
+  --work-dir ../uv/seg/runs/mic-your-run --seed 0
+
+uv/seg/.venv/bin/python uv/verify_mic_training.py \
+  uv/seg/runs/mic-your-run --export-student
+
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 bash uv/run.sh seg tools/test.py \
+  ../uv/seg/mic_gta_cityscapes_smoke.py \
+  ../uv/seg/runs/mic-your-run/student_2.pth --eval mIoU \
+  --show-dir ../uv/seg/runs/mic-your-run/predictions
+```
+
+Expected: a PASS from the audit, two saved training updates, finite positive
+source/mixed/masked losses, an unchanged frozen ImageNet network, and eight
+prediction images. Small-crop feature-distance loss may be zero; absent-class
+metric NaNs in a small validation subset are separate from non-finite training
+losses and do not indicate a training failure.
+
+Evaluate the supplied research checkpoint on the same eight images:
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 bash uv/run.sh seg tools/test.py \
+  ../uv/seg/mic_checkpoint_eval.py \
+  ../dataset/checkpoints/gtaHR2csHR_mic_hrda_650a8/iter_40000_relevant.pth \
+  --eval mIoU --show-dir ../uv/seg/runs/mic-pretrained-your-run/predictions \
+  --options data.test.split=../../../uv/seg/cityscapes_val_subset.txt
+```
+
+For all 500 validation images, omit the `--options data.test.split=...` override.
+Consider `--eval-options efficient_test=True` to store prediction arrays on disk
+instead of keeping all full-resolution predictions in RAM. Full validation takes
+substantially longer than this eight-image check. Sequential outer crop batching
+keeps the original inference resolution/crop sizes; it is slower than batching
+all outer crops.
+
+The long small-GPU run is ready to launch explicitly (not started automatically):
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 bash uv/run.sh seg tools/train.py \
+  ../uv/seg/mic_gta_cityscapes_8gb.py \
+  --work-dir ../uv/seg/runs/mic-8gb-s0 --seed 0
+```
+
+Its matching no-MIC control uses
+`../uv/seg/hrda_gta_cityscapes_8gb_baseline.py` and a separate work directory.
+
 Environment configuration, scripts, locks, environments, and native build
 products live under `uv/`. Work is on branch `mikhail`; the original dependency
 versions remain pinned. The previous environments are not used or modified.
@@ -160,7 +294,7 @@ Verified on the RTX 3060 8 GB, driver 580.178.04:
 | Original detection C++ extension build | PASS, CPU |
 | Default detector inference and EMA pseudo-labeling (without a bypass flag) | PASS, CPU |
 | Original detection metric-logger and sampler tests | PASS, 10 tests |
-| New scheduler/logger and domain-head regression tests | PASS, 4 tests |
+| New scheduler/logger, domain-head, and feature-distance regression tests | PASS, 6 tests |
 | Baseline and MIC classification training, checkpoint reload, evaluation CLIs | PASS, CUDA, generated images |
 | Segmentation DACS+MIC training, validation, checkpoint reload, mIoU CLI | PASS, CUDA, generated images |
 | Detection CUDA extension / GPU detector training | Not tested: no `nvcc` installed |
@@ -210,6 +344,12 @@ training iteration does not mean only one validation batch. The original loaders
 check all OfficeHome domain archives, not just the two selected domains.
 
 ### Segmentation: the original MIC(HRDA) experiment
+
+The locally supplied Cityscapes archives have now been verified and preprocessed.
+A real-image GPU quick check (training, validation, checkpoint reload, and eight
+prediction overlays) completed successfully. See
+[the Cityscapes quick-check guide](seg/CITYSCAPES.md) for the recorded verification,
+repeatable commands, and the distinction from the full MIC research experiment.
 
 For training GTA to Cityscapes, manually obtain:
 

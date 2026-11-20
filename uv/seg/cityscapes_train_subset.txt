@@ -1,0 +1,8 @@
+aachen/aachen_000000_000019
+bochum/bochum_000000_000313
+bremen/bremen_000000_000019
+cologne/cologne_000000_000019
+darmstadt/darmstadt_000000_000019
+dusseldorf/dusseldorf_000000_000019
+erfurt/erfurt_000000_000019
+hamburg/hamburg_000000_000042
